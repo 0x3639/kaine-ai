@@ -586,8 +586,10 @@ def main():
     if len(sys.argv) > 1:
         json_file = sys.argv[1]
     else:
-        # Try data/ directory first, fall back to current directory
-        if os.path.exists('data/sample_posts.json'):
+        # Try data/ directory first with different filenames
+        if os.path.exists('data/mrkainez_posts.json'):
+            json_file = 'data/mrkainez_posts.json'
+        elif os.path.exists('data/sample_posts.json'):
             json_file = 'data/sample_posts.json'
         else:
             json_file = 'sample_posts.json'
@@ -597,7 +599,7 @@ def main():
         print(f"Error: File '{json_file}' not found!")
         print("\nUsage: python kaine_ai.py [json_file]")
         print("Example: python kaine_ai.py data/my_posts.json")
-        print("\nIf no file is specified, it will look for 'data/sample_posts.json' or 'sample_posts.json'")
+        print("\nMake sure your Telegram JSON data file is in the 'data/' directory.")
         sys.exit(1)
     
     try:
