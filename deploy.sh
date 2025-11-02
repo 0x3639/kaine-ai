@@ -75,6 +75,16 @@ if [ -z "$OPENAI_API_KEY" ] || [ "$OPENAI_API_KEY" = "your-api-key-here" ]; then
     exit 1
 fi
 
+# Determine which compose files to use based on ENVIRONMENT
+ENVIRONMENT=${ENVIRONMENT:-production}
+if [ "$ENVIRONMENT" = "production" ]; then
+    COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
+    echo -e "${GREEN}✓${NC} Environment: ${BLUE}production${NC} (using production overrides)"
+else
+    COMPOSE_FILES="-f docker-compose.yml"
+    echo -e "${GREEN}✓${NC} Environment: ${BLUE}development${NC} (using base config only)"
+fi
+
 echo -e "${GREEN}✓${NC} Environment configuration validated"
 
 # Backup cache directory if it exists
@@ -98,19 +108,19 @@ fi
 
 # Build and deploy with docker compose
 echo -e "${YELLOW}→${NC} Stopping existing containers..."
-docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+docker compose $COMPOSE_FILES down
 
 if [ "$REBUILD" = true ]; then
     echo -e "${YELLOW}→${NC} Building Docker images (no cache)..."
-    docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+    docker compose $COMPOSE_FILES build --no-cache
 else
     echo -e "${YELLOW}→${NC} Building Docker images..."
-    docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+    docker compose $COMPOSE_FILES build
 fi
 echo -e "${GREEN}✓${NC} Images built"
 
-echo -e "${YELLOW}→${NC} Starting containers in production mode..."
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+echo -e "${YELLOW}→${NC} Starting containers..."
+docker compose $COMPOSE_FILES up -d
 echo -e "${GREEN}✓${NC} Containers started"
 
 # Wait for services to start
@@ -118,11 +128,11 @@ echo -e "${YELLOW}→${NC} Waiting for services to start..."
 sleep 10
 
 # Check if containers are running
-if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps | grep -q "Up"; then
+if docker compose $COMPOSE_FILES ps | grep -q "Up"; then
     echo -e "${GREEN}✓${NC} Containers are running"
 else
     echo -e "${RED}✗${NC} Containers failed to start"
-    echo "Check logs with: docker compose logs"
+    echo "Check logs with: docker compose $COMPOSE_FILES logs"
     exit 1
 fi
 
@@ -151,13 +161,13 @@ if [ $HEALTH_CHECK_ATTEMPTS -eq $MAX_ATTEMPTS ]; then
     echo -e "\n${YELLOW}⚠${NC}  Health check timeout - app may still be starting"
     echo -e "${YELLOW}→${NC} This is normal on first deployment while embeddings are being generated"
     echo -e "${YELLOW}→${NC} Check status with: curl http://localhost:8000/api/health"
-    echo -e "${YELLOW}→${NC} Monitor logs with: docker compose logs -f app"
+    echo -e "${YELLOW}→${NC} Monitor logs with: docker compose $COMPOSE_FILES logs -f app"
 fi
 
 # Display container status
 echo ""
 echo -e "${BLUE}Container Status:${NC}"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker compose $COMPOSE_FILES ps
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -165,9 +175,9 @@ echo -e "${GREEN}Deployment completed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${BLUE}Useful commands:${NC}"
-echo "  View logs:        docker compose logs -f"
-echo "  View app logs:    docker compose logs -f app"
-echo "  View Redis logs:  docker compose logs -f redis"
-echo "  Stop services:    docker compose -f docker-compose.yml -f docker-compose.prod.yml down"
-echo "  Restart:          docker compose -f docker-compose.yml -f docker-compose.prod.yml restart"
+echo "  View logs:        docker compose $COMPOSE_FILES logs -f"
+echo "  View app logs:    docker compose $COMPOSE_FILES logs -f app"
+echo "  View Redis logs:  docker compose $COMPOSE_FILES logs -f redis"
+echo "  Stop services:    docker compose $COMPOSE_FILES down"
+echo "  Restart:          docker compose $COMPOSE_FILES restart"
 echo ""

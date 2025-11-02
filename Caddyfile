@@ -43,18 +43,12 @@ yourdomain.com {
     # }
 
     # Reverse proxy to FastAPI backend
-    # Replace YOUR_APP_SERVER_IP with your actual app server IP
-    reverse_proxy YOUR_APP_SERVER_IP:8000 {
+    # Use 127.0.0.1:8000 if Caddy is on same server, or YOUR_APP_SERVER_IP:8000 if separate
+    reverse_proxy 127.0.0.1:8000 {
         # Health check
         health_uri /api/health
         health_interval 30s
         health_timeout 10s
-
-        # Header forwarding
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-Host {host}
 
         # Timeouts
         transport http {
