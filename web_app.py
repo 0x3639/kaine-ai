@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from typing import Dict, List, Optional
 from pathlib import Path
+from contextlib import asynccontextmanager
 import json
 
 from fastapi import FastAPI, HTTPException, Request
@@ -37,8 +38,10 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
-# Initialize FastAPI app
-app = FastAPI(title="Kaine AI Web Interface")
+# Global instances (will be initialized in lifespan)
+qa_tool = None
+redis_client: Optional[Redis] = None
+rate_limit_storage: Dict[str, deque] = None
 
 # Setup structured JSON logging
 def setup_logging():
@@ -72,6 +75,85 @@ def setup_logging():
 
 logger = setup_logging()
 
+# Rate limiting configuration
+RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "10"))
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_MINUTES", "60")) * 60
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events
+    Replaces deprecated @app.on_event decorators
+    """
+    global qa_tool, redis_client, rate_limit_storage
+
+    # Startup
+    logger.info(f"Starting Kaine AI in {ENVIRONMENT} mode...")
+
+    # Initialize rate limit storage
+    rate_limit_storage = defaultdict(lambda: deque(maxlen=RATE_LIMIT_MAX_REQUESTS))
+
+    # Initialize Redis if available and configured
+    if REDIS_AVAILABLE and REDIS_URL:
+        try:
+            redis_client = Redis.from_url(
+                REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_keepalive=True
+            )
+            # Test connection
+            redis_client.ping()
+            logger.info(f"Redis connected: {REDIS_URL}")
+        except Exception as e:
+            logger.warning(f"Redis connection failed: {e}, using in-memory rate limiting")
+            redis_client = None
+    else:
+        logger.warning("Redis not available, using in-memory rate limiting")
+
+    # Check for API key
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        logger.error("OPENAI_API_KEY not found in environment!")
+        logger.error("Please set it in your .env file")
+        sys.exit(1)
+
+    # Determine JSON file path
+    if os.path.exists('data/mrkainez_posts.json'):
+        json_file = 'data/mrkainez_posts.json'
+    elif os.path.exists('data/sample_posts.json'):
+        json_file = 'data/sample_posts.json'
+    else:
+        logger.error("No JSON data file found!")
+        logger.error("Please ensure mrkainez_posts.json or sample_posts.json exists in data/ directory")
+        sys.exit(1)
+
+    try:
+        qa_tool = TelegramQA(json_file, api_key)
+        logger.info(f"Kaine AI initialized with {len(qa_tool.posts)} posts from {json_file}")
+        logger.info(f"Rate limiting: {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS // 60} minutes per IP")
+        logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")
+    except Exception as e:
+        logger.error(f"ERROR initializing Kaine AI: {e}", exc_info=True)
+        sys.exit(1)
+
+    yield  # Application runs here
+
+    # Shutdown
+    logger.info("Shutting down Kaine AI...")
+
+    if redis_client:
+        try:
+            redis_client.close()
+            logger.info("Redis connection closed")
+        except Exception as e:
+            logger.warning(f"Error closing Redis connection: {e}")
+
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title="Kaine AI Web Interface", lifespan=lifespan)
+
 # CORS middleware - restrict origins in production
 app.add_middleware(
     CORSMiddleware,
@@ -80,15 +162,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Rate limiting configuration
-RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "10"))
-RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_MINUTES", "60")) * 60
-
-# Global instances
-qa_tool = None
-redis_client: Optional[Redis] = None
-rate_limit_storage: Dict[str, deque] = defaultdict(lambda: deque(maxlen=RATE_LIMIT_MAX_REQUESTS))
 
 
 class QuestionRequest(BaseModel):
@@ -186,73 +259,6 @@ def check_rate_limit(ip_address: str) -> bool:
         return check_rate_limit_redis(ip_address)
     else:
         return check_rate_limit_memory(ip_address)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the TelegramQA tool and Redis on startup"""
-    global qa_tool, redis_client
-
-    logger.info(f"Starting Kaine AI in {ENVIRONMENT} mode...")
-
-    # Initialize Redis if available and configured
-    if REDIS_AVAILABLE and REDIS_URL:
-        try:
-            redis_client = Redis.from_url(
-                REDIS_URL,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_keepalive=True
-            )
-            # Test connection
-            redis_client.ping()
-            logger.info(f"Redis connected: {REDIS_URL}")
-        except Exception as e:
-            logger.warning(f"Redis connection failed: {e}, using in-memory rate limiting")
-            redis_client = None
-    else:
-        logger.warning("Redis not available, using in-memory rate limiting")
-
-    # Check for API key
-    api_key = os.getenv('OPENAI_API_KEY')
-    if not api_key:
-        logger.error("OPENAI_API_KEY not found in environment!")
-        logger.error("Please set it in your .env file")
-        sys.exit(1)
-
-    # Determine JSON file path
-    if os.path.exists('data/mrkainez_posts.json'):
-        json_file = 'data/mrkainez_posts.json'
-    elif os.path.exists('data/sample_posts.json'):
-        json_file = 'data/sample_posts.json'
-    else:
-        logger.error("No JSON data file found!")
-        logger.error("Please ensure mrkainez_posts.json or sample_posts.json exists in data/ directory")
-        sys.exit(1)
-
-    try:
-        qa_tool = TelegramQA(json_file, api_key)
-        logger.info(f"Kaine AI initialized with {len(qa_tool.posts)} posts from {json_file}")
-        logger.info(f"Rate limiting: {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS // 60} minutes per IP")
-        logger.info(f"CORS allowed origins: {ALLOWED_ORIGINS}")
-    except Exception as e:
-        logger.error(f"ERROR initializing Kaine AI: {e}", exc_info=True)
-        sys.exit(1)
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    global redis_client
-
-    logger.info("Shutting down Kaine AI...")
-
-    if redis_client:
-        try:
-            redis_client.close()
-            logger.info("Redis connection closed")
-        except Exception as e:
-            logger.warning(f"Error closing Redis connection: {e}")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -377,6 +383,7 @@ def main():
     # Determine number of workers based on environment
     workers = 1 if ENVIRONMENT == "development" else int(os.getenv("WORKERS", "4"))
     reload = ENVIRONMENT == "development"
+    port = int(os.getenv("PORT", "8000"))
 
     logger.info("="*60)
     logger.info("Kaine AI Web Interface")
@@ -384,15 +391,16 @@ def main():
     logger.info(f"Environment: {ENVIRONMENT}")
     logger.info(f"Workers: {workers}")
     logger.info(f"Reload: {reload}")
+    logger.info(f"Port: {port}")
     logger.info("Starting server...")
-    logger.info("Access the interface at: http://localhost:8000")
+    logger.info(f"Access the interface at: http://localhost:{port}")
     logger.info("Press Ctrl+C to stop the server")
     logger.info("="*60)
 
     uvicorn.run(
         "web_app:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", "8000")),
+        port=port,
         workers=workers,
         reload=reload,
         log_level=LOG_LEVEL.lower(),

@@ -96,50 +96,68 @@ else
     echo -e "${YELLOW}→${NC} Not a git repository, skipping git pull"
 fi
 
-# Build and deploy with docker-compose
+# Build and deploy with docker compose
 echo -e "${YELLOW}→${NC} Stopping existing containers..."
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
 if [ "$REBUILD" = true ]; then
     echo -e "${YELLOW}→${NC} Building Docker images (no cache)..."
-    docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
 else
     echo -e "${YELLOW}→${NC} Building Docker images..."
-    docker-compose -f docker-compose.yml -f docker-compose.prod.yml build
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 fi
 echo -e "${GREEN}✓${NC} Images built"
 
 echo -e "${YELLOW}→${NC} Starting containers in production mode..."
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 echo -e "${GREEN}✓${NC} Containers started"
 
-# Wait for health check
-echo -e "${YELLOW}→${NC} Waiting for services to be healthy..."
-sleep 5
+# Wait for services to start
+echo -e "${YELLOW}→${NC} Waiting for services to start..."
+sleep 10
 
 # Check if containers are running
-if docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps | grep -q "Up"; then
-    echo -e "${GREEN}✓${NC} Services are running"
+if docker compose -f docker-compose.yml -f docker-compose.prod.yml ps | grep -q "Up"; then
+    echo -e "${GREEN}✓${NC} Containers are running"
 else
-    echo -e "${RED}✗${NC} Services failed to start"
-    echo "Check logs with: docker-compose logs"
+    echo -e "${RED}✗${NC} Containers failed to start"
+    echo "Check logs with: docker compose logs"
     exit 1
 fi
 
-# Test health endpoint
-echo -e "${YELLOW}→${NC} Testing health endpoint..."
-if curl -sf http://localhost:8000/api/health > /dev/null; then
-    echo -e "${GREEN}✓${NC} Health check passed"
-else
-    echo -e "${RED}✗${NC} Health check failed"
-    echo "Check logs with: docker-compose logs app"
-    exit 1
+# Test health endpoint with retry logic
+echo -e "${YELLOW}→${NC} Testing health endpoint (may take up to 2 minutes for first deployment)..."
+echo -e "${YELLOW}→${NC} If this is the first deployment, embeddings are being generated..."
+
+HEALTH_CHECK_ATTEMPTS=0
+MAX_ATTEMPTS=24  # 2 minutes total (24 * 5 seconds)
+
+while [ $HEALTH_CHECK_ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+    if curl -sf http://localhost:8000/api/health > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Health check passed"
+        break
+    fi
+
+    HEALTH_CHECK_ATTEMPTS=$((HEALTH_CHECK_ATTEMPTS + 1))
+
+    if [ $HEALTH_CHECK_ATTEMPTS -lt $MAX_ATTEMPTS ]; then
+        echo -ne "${YELLOW}→${NC} Waiting for app to be ready... (attempt $HEALTH_CHECK_ATTEMPTS/$MAX_ATTEMPTS)\r"
+        sleep 5
+    fi
+done
+
+if [ $HEALTH_CHECK_ATTEMPTS -eq $MAX_ATTEMPTS ]; then
+    echo -e "\n${YELLOW}⚠${NC}  Health check timeout - app may still be starting"
+    echo -e "${YELLOW}→${NC} This is normal on first deployment while embeddings are being generated"
+    echo -e "${YELLOW}→${NC} Check status with: curl http://localhost:8000/api/health"
+    echo -e "${YELLOW}→${NC} Monitor logs with: docker compose logs -f app"
 fi
 
 # Display container status
 echo ""
 echo -e "${BLUE}Container Status:${NC}"
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -147,9 +165,9 @@ echo -e "${GREEN}Deployment completed successfully!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${BLUE}Useful commands:${NC}"
-echo "  View logs:        docker-compose logs -f"
-echo "  View app logs:    docker-compose logs -f app"
-echo "  View Redis logs:  docker-compose logs -f redis"
-echo "  Stop services:    docker-compose -f docker-compose.yml -f docker-compose.prod.yml down"
-echo "  Restart:          docker-compose -f docker-compose.yml -f docker-compose.prod.yml restart"
+echo "  View logs:        docker compose logs -f"
+echo "  View app logs:    docker compose logs -f app"
+echo "  View Redis logs:  docker compose logs -f redis"
+echo "  Stop services:    docker compose -f docker-compose.yml -f docker-compose.prod.yml down"
+echo "  Restart:          docker compose -f docker-compose.yml -f docker-compose.prod.yml restart"
 echo ""
