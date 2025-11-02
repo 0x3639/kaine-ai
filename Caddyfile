@@ -1,0 +1,105 @@
+# Caddyfile - Caddy reverse proxy configuration for Kaine AI
+# This file should be deployed on your separate Caddy server (not the app server)
+#
+# Installation on Ubuntu/Debian:
+#   sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+#   sudo apt update
+#   sudo apt install caddy
+#
+# Deploy this file:
+#   sudo cp Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# IMPORTANT: Replace yourdomain.com with your actual domain name
+
+# Main site configuration
+yourdomain.com {
+    # Automatic HTTPS with Let's Encrypt
+    # Caddy automatically obtains and renews SSL certificates
+
+    # Optional: Enable gzip compression
+    encode gzip zstd
+
+    # Access logging (optional)
+    log {
+        output file /var/log/caddy/kaine-ai-access.log {
+            roll_size 100mb
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+    }
+
+    # Optional: Rate limiting at proxy level (additional layer)
+    # Uncomment to add Caddy-level rate limiting
+    # rate_limit {
+    #     zone kaine_api {
+    #         key {remote_host}
+    #         events 20
+    #         window 1m
+    #     }
+    # }
+
+    # Reverse proxy to FastAPI backend
+    # Replace YOUR_APP_SERVER_IP with your actual app server IP
+    reverse_proxy YOUR_APP_SERVER_IP:8000 {
+        # Health check
+        health_uri /api/health
+        health_interval 30s
+        health_timeout 10s
+
+        # Header forwarding
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+
+        # Timeouts
+        transport http {
+            dial_timeout 10s
+            response_header_timeout 60s
+            read_timeout 120s
+        }
+
+        # Fail timeout
+        fail_duration 30s
+        max_fails 3
+        unhealthy_status 503
+    }
+
+    # Security headers
+    header {
+        # Remove server header
+        -Server
+
+        # Security headers
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # CSP - adjust as needed for your app
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'"
+    }
+
+    # Optional: Custom error pages
+    handle_errors {
+        @502-504 expression `{http.error.status_code} in [502, 503, 504]`
+        handle @502-504 {
+            respond "Service temporarily unavailable. Please try again later." 503
+        }
+    }
+}
+
+# Optional: Redirect www to non-www
+www.yourdomain.com {
+    redir https://yourdomain.com{uri} permanent
+}
+
+# Optional: HTTP to HTTPS redirect (Caddy does this automatically, but you can customize)
+# http://yourdomain.com {
+#     redir https://yourdomain.com{uri} permanent
+# }

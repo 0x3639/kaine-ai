@@ -1,0 +1,14 @@
+# Production-specific requirements
+# These are additional dependencies for production deployments
+
+# ASGI server for production
+gunicorn>=21.2.0
+
+# Monitoring and metrics (optional, uncomment if needed)
+# prometheus-client>=0.19.0
+
+# Error tracking (optional, uncomment if needed)
+# sentry-sdk[fastapi]>=1.39.0
+
+# HTTP client with connection pooling
+httpx>=0.25.0

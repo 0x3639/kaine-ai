@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ask Mr. Kaine</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container initial-state">
+        <!-- Header -->
+        <div class="header" id="header">
+            <h1>Ask Mr. Kaine a Question</h1>
+            <!-- Welcome message -->
+            <div class="welcome-message">
+                <p>Welcome! Ask me anything about the Telegram posts and I'll help you find the answer.</p>
+            </div>
+        </div>
+
+        <!-- Chat Area -->
+        <div id="chat-container">
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-container">
+            <div class="input-wrapper">
+                <textarea
+                    id="question-input"
+                    placeholder="Ask Kaine a question"
+                    rows="1"
+                    maxlength="1000"
+                ></textarea>
+                <button id="send-button" class="send-button" aria-label="Send question">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path d="M7 11L12 6L17 11M12 18V7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="input-footer">
+                <span class="rate-limit-info">10 questions per hour</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

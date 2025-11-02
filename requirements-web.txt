@@ -1,0 +1,19 @@
+# Kaine AI Web Interface Requirements
+# This includes all base requirements plus web-specific dependencies
+
+# Base dependencies (from requirements.txt)
+openai>=1.0.0
+numpy>=1.24.0
+tiktoken>=0.5.0
+python-dotenv>=1.0.0
+
+# Web framework dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# Redis for rate limiting
+redis>=5.0.0
+
+# Production logging
+python-json-logger>=2.0.7

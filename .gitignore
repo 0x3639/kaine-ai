@@ -54,3 +54,24 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# Production backups
+cache_backup_*/
+*.backup
+
+# Redis data
+redis_data/
+dump.rdb
+
+# Logs
+logs/
+*.log
+
+# Environment-specific
+.env.local
+.env.production
+.env.staging

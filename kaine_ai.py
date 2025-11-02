@@ -443,35 +443,52 @@ class TelegramQA:
 
         return full_context
     
-    def answer_question(self, question: str, context_posts: int = None) -> str:
+    def answer_question(self, question: str, context_posts: int = None, return_sources: bool = False):
         """
         Answer a question about the Telegram posts with improved context
+
+        Args:
+            question: The question to answer
+            context_posts: Number of context posts to use
+            return_sources: If True, return dict with answer and sources. If False, return just answer string.
+
+        Returns:
+            If return_sources=False: str (answer text)
+            If return_sources=True: dict with keys 'answer' (str) and 'sources' (list of dicts)
         """
         if context_posts is None:
             context_posts = self.default_context_posts
-        
+
         # Find relevant chunks (larger top_k for hybrid)
         relevant_chunks = self.find_relevant_chunks(question, top_k=context_posts * 2)  # Oversample
-        
+
         if not relevant_chunks:
-            return "I couldn't find any relevant posts to answer your question."
-        
+            answer = "I couldn't find any relevant posts to answer your question."
+            if return_sources:
+                return {"answer": answer, "sources": []}
+            return answer
+
         # Build compressed context
         context = self.build_context(relevant_chunks, question)
-        
+
         # Create the prompt
-        system_prompt = """You are a helpful assistant analyzing Telegram posts. 
+        system_prompt = """You are a helpful assistant analyzing Telegram posts.
         Based on the provided context, answer the user's question accurately and concisely using as much relevant information as possible.
         If the answer cannot be found in the context, say so.
-        When referencing specific posts, include the date and author."""
-        
+        When referencing specific posts, ALWAYS include:
+        1. The date of the post
+        2. The author's name
+        3. The Telegram URL link to the post
+
+        Format links as clickable references in your answer."""
+
         user_prompt = f"""Context (relevant Telegram posts and summaries):
 {context}
 
 Question: {question}
 
 Please provide a clear and accurate answer based on the posts above."""
-        
+
         try:
             response = self.client.chat.completions.create(
                 model=self.chat_model,
@@ -488,9 +505,49 @@ Please provide a clear and accurate answer based on the posts above."""
             output_tokens = len(self.tokenizer.encode(response.choices[0].message.content))
             self.track_cost(input_tokens, output_tokens, self.chat_model)
 
-            return response.choices[0].message.content
+            answer = response.choices[0].message.content
+
+            # If sources are requested, extract and format them
+            if return_sources:
+                sources = self._extract_sources_from_chunks(relevant_chunks)
+                return {"answer": answer, "sources": sources}
+
+            return answer
         except Exception as e:
-            return f"Error generating answer: {e}"
+            error_msg = f"Error generating answer: {e}"
+            if return_sources:
+                return {"answer": error_msg, "sources": []}
+            return error_msg
+
+    def _extract_sources_from_chunks(self, chunks: List[Dict]) -> List[Dict]:
+        """
+        Extract source information from chunks, grouped by post to avoid duplicates
+        """
+        # Group by post_idx to avoid duplicate sources from same post
+        seen_posts = set()
+        sources = []
+
+        for chunk in chunks:
+            post_idx = chunk['post_idx']
+            if post_idx in seen_posts:
+                continue
+            seen_posts.add(post_idx)
+
+            metadata = chunk['metadata']
+            user = metadata.get('user', {})
+
+            source = {
+                'date': metadata.get('date', 'Unknown'),
+                'author': f"{user.get('first_name', 'Unknown')} (@{user.get('username', 'Unknown')})",
+                'url': metadata.get('telegram_url', ''),
+                'relevance_score': round(chunk.get('relevance_score', 0), 3)
+            }
+            sources.append(source)
+
+        # Sort by relevance score
+        sources.sort(key=lambda x: x['relevance_score'], reverse=True)
+
+        return sources
     
     # The interactive_chat and show_statistics remain similar, with potential updates for filtering
     def interactive_chat(self):
