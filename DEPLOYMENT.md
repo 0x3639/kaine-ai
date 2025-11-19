@@ -87,7 +87,7 @@ mkdir -p ~/kaine-ai
 cd ~/kaine-ai
 
 # Clone your repository (or upload files via SCP)
-git clone https://github.com/yourusername/kaine-ai.git .
+git clone https://github.com/0x3639/kaine-ai.git .
 
 # Or upload files manually:
 # scp -r /local/path/to/kaine-ai/* user@your-server:~/kaine-ai/
