@@ -8,6 +8,14 @@
 </head>
 <body>
     <div class="container initial-state">
+        <!-- Share button (hidden initially) -->
+        <button id="share-button" class="share-button hidden" onclick="showShareModal()" aria-label="Share conversation">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M18 8C19.6569 8 21 6.65685 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 5.12548 15.0077 5.24917 15.0227 5.37061L8.08259 9.19629C7.54305 8.46883 6.72554 8 5.8 8C4.14315 8 3 9.34315 3 11C3 12.6569 4.14315 14 5.8 14C6.72554 14 7.54305 13.5312 8.08259 12.8037L15.0227 16.6294C15.0077 16.7508 15 16.8745 15 17C15 18.6569 16.3431 20 18 20C19.6569 20 21 18.6569 21 17C21 15.3431 19.6569 14 18 14C17.0745 14 16.2569 14.4688 15.7174 15.1963L8.77729 11.3706C8.79232 11.2492 8.8 11.1255 8.8 11C8.8 10.8745 8.79232 10.7508 8.77729 10.6294L15.7174 6.80371C16.2569 7.53117 17.0745 8 18 8Z" fill="currentColor"/>
+            </svg>
+            Share
+        </button>
+
         <!-- Header -->
         <div class="header" id="header">
             <h1>Ask Mr. Kaine a Question</h1>
@@ -46,6 +54,45 @@
     <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
     </div>
+
+    <!-- Share modal -->
+    <div id="share-modal" class="modal hidden">
+        <div class="modal-overlay" onclick="hideShareModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Share Conversation</h2>
+                <button class="modal-close" onclick="hideShareModal()" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="password-checkbox" onchange="togglePasswordInput()">
+                        Password protect this conversation
+                    </label>
+                </div>
+                <div class="form-group">
+                    <input
+                        type="password"
+                        id="password-input"
+                        class="hidden"
+                        placeholder="Enter password"
+                        autocomplete="new-password"
+                    >
+                </div>
+                <button class="generate-button" onclick="generateShareLink()">Generate Share Link</button>
+                <div id="share-link-display" class="share-link-display hidden">
+                    <label>Share this link:</label>
+                    <div class="link-input-group">
+                        <input type="text" id="share-link-input" readonly>
+                        <button class="copy-button" onclick="copyShareLink()">Copy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast hidden"></div>
 
     <script src="/static/script.js"></script>
 </body>

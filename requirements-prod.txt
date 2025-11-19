@@ -12,3 +12,6 @@ gunicorn>=21.2.0
 
 # HTTP client with connection pooling
 httpx>=0.25.0
+
+# Password hashing for session protection
+bcrypt>=4.0.0

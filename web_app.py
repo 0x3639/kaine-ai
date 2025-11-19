@@ -13,6 +13,8 @@ from typing import Dict, List, Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
 import json
+import uuid
+import bcrypt
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -173,6 +175,43 @@ class AnswerResponse(BaseModel):
     sources: List[Dict]
 
 
+class MessageData(BaseModel):
+    """Single message in a conversation"""
+    question: str
+    answer: str
+    sources: List[Dict]
+    timestamp: str
+
+
+class SessionCreate(BaseModel):
+    """Request to create or update a session"""
+    session_id: Optional[str] = None
+    messages: List[MessageData]
+    password: Optional[str] = None
+
+
+class SessionResponse(BaseModel):
+    """Response when creating/updating a session"""
+    session_id: str
+    created_at: str
+    updated_at: str
+    has_password: bool
+
+
+class SessionData(BaseModel):
+    """Full session data"""
+    session_id: str
+    created_at: str
+    updated_at: str
+    messages: List[MessageData]
+    has_password: bool
+
+
+class SessionVerify(BaseModel):
+    """Request to verify password for a session"""
+    password: str
+
+
 def get_client_ip(request: Request) -> str:
     """Extract client IP address from request"""
     # Check X-Forwarded-For header first (for proxy/load balancer)
@@ -261,6 +300,135 @@ def check_rate_limit(ip_address: str) -> bool:
         return check_rate_limit_memory(ip_address)
 
 
+# Session management functions
+
+def save_session(session_data: SessionCreate) -> SessionResponse:
+    """
+    Save a conversation session to Redis
+
+    Args:
+        session_data: Session data including messages and optional password
+
+    Returns:
+        SessionResponse with session_id and metadata
+    """
+    # Generate new session ID if not provided
+    session_id = session_data.session_id or str(uuid.uuid4())
+
+    now = datetime.now().isoformat()
+
+    # Hash password if provided
+    password_hash = None
+    if session_data.password:
+        password_hash = bcrypt.hashpw(
+            session_data.password.encode('utf-8'),
+            bcrypt.gensalt()
+        ).decode('utf-8')
+
+    # Prepare session data
+    session = {
+        "session_id": session_id,
+        "created_at": now,
+        "updated_at": now,
+        "password_hash": password_hash,
+        "messages": [msg.model_dump() for msg in session_data.messages]
+    }
+
+    # Store in Redis (or fallback to in-memory dict if Redis unavailable)
+    key = f"session:{session_id}"
+
+    if redis_client:
+        try:
+            # Store as JSON string without expiration (never expire)
+            redis_client.set(key, json.dumps(session))
+            logger.info(f"Session {session_id} saved to Redis")
+        except Exception as e:
+            logger.error(f"Failed to save session to Redis: {e}")
+            raise HTTPException(status_code=500, detail="Failed to save session")
+    else:
+        # Fallback: in-memory storage (not recommended for production)
+        if not hasattr(save_session, '_memory_sessions'):
+            save_session._memory_sessions = {}
+        save_session._memory_sessions[key] = session
+        logger.warning(f"Session {session_id} saved to memory (Redis unavailable)")
+
+    return SessionResponse(
+        session_id=session_id,
+        created_at=now,
+        updated_at=now,
+        has_password=password_hash is not None
+    )
+
+
+def get_session(session_id: str, password: Optional[str] = None) -> Optional[SessionData]:
+    """
+    Retrieve a session from Redis
+
+    Args:
+        session_id: The session ID to retrieve
+        password: Optional password for protected sessions
+
+    Returns:
+        SessionData if found and password is correct (if required), None otherwise
+
+    Raises:
+        HTTPException: If session not found or password incorrect
+    """
+    key = f"session:{session_id}"
+
+    # Retrieve from Redis or memory
+    session_json = None
+    if redis_client:
+        try:
+            session_json = redis_client.get(key)
+            if session_json:
+                session_json = session_json.decode('utf-8')
+        except Exception as e:
+            logger.error(f"Failed to retrieve session from Redis: {e}")
+            raise HTTPException(status_code=500, detail="Failed to retrieve session")
+    else:
+        # Fallback: in-memory storage
+        if hasattr(save_session, '_memory_sessions'):
+            session = save_session._memory_sessions.get(key)
+            if session:
+                session_json = json.dumps(session)
+
+    if not session_json:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = json.loads(session_json)
+
+    # Check password if session is protected
+    if session.get('password_hash'):
+        if not password:
+            # Return minimal data indicating password is required
+            return SessionData(
+                session_id=session_id,
+                created_at=session['created_at'],
+                updated_at=session['updated_at'],
+                messages=[],
+                has_password=True
+            )
+
+        # Verify password
+        password_match = bcrypt.checkpw(
+            password.encode('utf-8'),
+            session['password_hash'].encode('utf-8')
+        )
+
+        if not password_match:
+            raise HTTPException(status_code=403, detail="Incorrect password")
+
+    # Return full session data
+    return SessionData(
+        session_id=session_id,
+        created_at=session['created_at'],
+        updated_at=session['updated_at'],
+        messages=[MessageData(**msg) for msg in session['messages']],
+        has_password=session.get('password_hash') is not None
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve the main HTML page"""
@@ -328,6 +496,128 @@ async def ask_question(request: Request, question_req: QuestionRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Error processing question: {str(e)}"
+        )
+
+
+@app.post("/api/sessions", response_model=SessionResponse)
+async def create_session(session_data: SessionCreate):
+    """
+    Create or update a conversation session
+
+    Accepts a session with messages and optional password protection.
+    If session_id is provided, updates existing session. Otherwise creates new one.
+    """
+    try:
+        logger.info(f"Creating/updating session with {len(session_data.messages)} messages")
+        response = save_session(session_data)
+        logger.info(f"Session {response.session_id} saved successfully")
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating session: {str(e)}"
+        )
+
+
+@app.get("/api/sessions/{session_id}", response_model=SessionData)
+async def get_session_endpoint(request: Request, session_id: str):
+    """
+    Get a session by ID
+
+    If session is password-protected, returns metadata only with has_password=True
+    and empty messages array. Client should then call /verify endpoint.
+
+    Rate limited to prevent abuse.
+    """
+    # Get client IP and check rate limit
+    client_ip = get_client_ip(request)
+
+    if not check_rate_limit(client_ip):
+        logger.warning(f"Rate limit exceeded for session retrieval from IP: {client_ip}")
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "Rate limit exceeded",
+                "message": f"You have exceeded the limit of {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS // 60} minutes. Please try again later.",
+                "retry_after_minutes": RATE_LIMIT_WINDOW_SECONDS // 60
+            }
+        )
+
+    try:
+        logger.info(f"Retrieving session: {session_id} from IP: {client_ip}")
+        session_data = get_session(session_id)
+
+        if not session_data:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # If password protected and no messages, client needs to verify
+        if session_data.has_password and not session_data.messages:
+            logger.info(f"Session {session_id} is password protected")
+        else:
+            logger.info(f"Session {session_id} retrieved successfully")
+
+        return session_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving session {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving session: {str(e)}"
+        )
+
+
+@app.post("/api/sessions/{session_id}/verify", response_model=SessionData)
+async def verify_session(request: Request, session_id: str, verify_data: SessionVerify):
+    """
+    Verify password for a protected session and return full data
+
+    Args:
+        session_id: The session ID to verify
+        verify_data: Contains the password to verify
+
+    Returns:
+        Full session data if password is correct
+
+    Raises:
+        403: If password is incorrect
+        404: If session not found
+
+    Rate limited to prevent password brute-force attacks.
+    """
+    # Get client IP and check rate limit
+    client_ip = get_client_ip(request)
+
+    if not check_rate_limit(client_ip):
+        logger.warning(f"Rate limit exceeded for password verification from IP: {client_ip}")
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "Rate limit exceeded",
+                "message": f"You have exceeded the limit of {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS // 60} minutes. Please try again later.",
+                "retry_after_minutes": RATE_LIMIT_WINDOW_SECONDS // 60
+            }
+        )
+
+    try:
+        logger.info(f"Verifying password for session: {session_id} from IP: {client_ip}")
+        session_data = get_session(session_id, password=verify_data.password)
+
+        if not session_data:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        logger.info(f"Session {session_id} password verified successfully")
+        return session_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying session {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verifying session: {str(e)}"
         )
 
 
