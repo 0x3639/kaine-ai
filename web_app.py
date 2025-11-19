@@ -382,7 +382,9 @@ def get_session(session_id: str, password: Optional[str] = None) -> Optional[Ses
         try:
             session_json = redis_client.get(key)
             if session_json:
-                session_json = session_json.decode('utf-8')
+                # Handle both redis-py v4 (bytes) and v5+ (str)
+                if isinstance(session_json, bytes):
+                    session_json = session_json.decode('utf-8')
         except Exception as e:
             logger.error(f"Failed to retrieve session from Redis: {e}")
             raise HTTPException(status_code=500, detail="Failed to retrieve session")

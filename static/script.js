@@ -519,7 +519,16 @@ async function generateShareLink() {
         linkInput.value = shareUrl;
         linkDisplay.classList.remove('hidden');
 
-        showToast('Share link generated!');
+        // Auto-copy to clipboard
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            showToast('Link generated and copied to clipboard!');
+        } catch (err) {
+            // Fallback for older browsers
+            linkInput.select();
+            document.execCommand('copy');
+            showToast('Link generated and copied to clipboard!');
+        }
 
     } catch (error) {
         console.error('Error generating share link:', error);
@@ -527,11 +536,19 @@ async function generateShareLink() {
     }
 }
 
-function copyShareLink() {
+async function copyShareLink() {
     const linkInput = document.getElementById('share-link-input');
-    linkInput.select();
-    document.execCommand('copy');
-    showToast('Link copied to clipboard!');
+
+    try {
+        // Modern clipboard API
+        await navigator.clipboard.writeText(linkInput.value);
+        showToast('Link copied to clipboard!');
+    } catch (err) {
+        // Fallback for older browsers
+        linkInput.select();
+        document.execCommand('copy');
+        showToast('Link copied to clipboard!');
+    }
 }
 
 function togglePasswordInput() {
