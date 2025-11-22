@@ -484,12 +484,24 @@ async function saveSession(password = null) {
     }
 }
 
-function showShareModal() {
+function showShareModal(event) {
+    // Prevent event propagation to avoid conflicts
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+
     const modal = document.getElementById('share-modal');
     modal.classList.remove('hidden');
 }
 
-function hideShareModal() {
+function hideShareModal(event) {
+    // Prevent event propagation to avoid conflicts
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+
     const modal = document.getElementById('share-modal');
     modal.classList.add('hidden');
     // Reset form
@@ -536,7 +548,13 @@ async function generateShareLink() {
     }
 }
 
-async function copyShareLink() {
+async function copyShareLink(event) {
+    // Prevent event propagation
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+
     const linkInput = document.getElementById('share-link-input');
 
     try {
