@@ -186,8 +186,8 @@ body {
     margin-left: 8px;
 }
 
-/* Copy Button */
-.copy-button {
+/* Copy Button (in message bubbles) */
+.message-content .copy-button {
     position: absolute;
     top: 8px;
     right: 8px;
@@ -206,12 +206,12 @@ body {
     opacity: 1;
 }
 
-.copy-button:hover {
+.message-content .copy-button:hover {
     background-color: #565869;
     color: #ECECF1;
 }
 
-.copy-button.copied {
+.message-content .copy-button.copied {
     color: #19C37D;
 }
 
@@ -587,6 +587,7 @@ body {
 }
 
 .link-input-group .copy-button {
+    position: relative;  /* Override absolute positioning from .message-content .copy-button */
     padding: 10px 16px;
     background-color: #40414F;
     color: #ECECF1;
@@ -597,6 +598,7 @@ body {
     cursor: pointer;
     transition: all 0.2s;
     white-space: nowrap;
+    opacity: 1;  /* Ensure it's always visible, not hidden like message copy buttons */
 }
 
 .link-input-group .copy-button:hover {
