@@ -31,7 +31,7 @@ class TelegramQA:
     def __init__(self, json_file: str, api_key: str = None):
         """
         Initialize the Telegram Q&A tool
-        
+
         Args:
             json_file: Path to the JSON file containing Telegram posts
             api_key: OpenAI API key (if not provided, will use OPENAI_API_KEY env var)
@@ -39,7 +39,7 @@ class TelegramQA:
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
         if not self.api_key:
             raise ValueError("OpenAI API key must be provided or set in OPENAI_API_KEY environment variable or .env file")
-        
+
         self.client = OpenAI(api_key=self.api_key)
         self.json_file = json_file
         self.posts = []  # Original posts
@@ -58,7 +58,7 @@ class TelegramQA:
         # Cost tracking
         self.total_cost = 0.0
         self.enable_cost_tracking = os.getenv('ENABLE_COST_TRACKING', 'false').lower() == 'true'
-        
+
         # Load model configurations from environment
         self.embedding_model = os.getenv('EMBEDDING_MODEL', 'text-embedding-3-large')  # Upgraded to large for better quality
         self.chat_model = os.getenv('CHAT_MODEL', 'gpt-4o')  # Updated to gpt-4o for efficiency
@@ -72,13 +72,18 @@ class TelegramQA:
 
         # Diversity reranking
         self.enable_diversity = os.getenv('ENABLE_DIVERSITY', 'true').lower() == 'true'
-        
+
+        # Personality configuration
+        self.personality_file = os.getenv('KAINE_PERSONALITY_FILE', 'data/kaine_personality.md')
+        self.speculation_threshold = float(os.getenv('SPECULATION_THRESHOLD', '0.5'))
+        self.personality_context = self._load_personality()
+
         # Tokenizer for chunking
         self.tokenizer = tiktoken.encoding_for_model(self.embedding_model)
-        
+
         # Load the posts
         self.load_posts()
-        
+
         # Load or create chunks, embeddings, and TF-IDF
         self.load_or_create_chunks()
         self.load_or_create_embeddings()
@@ -89,10 +94,25 @@ class TelegramQA:
         print(f"Loading posts from {self.json_file}...")
         with open(self.json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
+
         self.posts = data['posts']
         print(f"Loaded {len(self.posts)} posts")
-    
+
+    def _load_personality(self) -> str:
+        """Load Mr. Kaine's personality context from file"""
+        if os.path.exists(self.personality_file):
+            try:
+                with open(self.personality_file, 'r', encoding='utf-8') as f:
+                    personality = f.read()
+                print(f"Loaded personality context from {self.personality_file}")
+                return personality
+            except Exception as e:
+                print(f"Warning: Could not load personality file: {e}")
+                return ""
+        else:
+            print(f"Note: Personality file not found at {self.personality_file}, using generic mode")
+            return ""
+
     def _create_searchable_text(self, post: Dict) -> str:
         """Create a searchable text representation of a post (normalized)"""
         parts = []
@@ -471,23 +491,59 @@ class TelegramQA:
         # Build compressed context
         context = self.build_context(relevant_chunks, question)
 
-        # Create the prompt
-        system_prompt = """You are a helpful assistant analyzing Telegram posts.
-        Based on the provided context, answer the user's question accurately and concisely using as much relevant information as possible.
-        If the answer cannot be found in the context, say so.
-        When referencing specific posts, ALWAYS include:
-        1. The date of the post
-        2. The author's name
-        3. The Telegram URL link to the post
+        # Calculate average relevance score to determine if we're speculating
+        avg_relevance = sum(chunk.get('relevance_score', 0) for chunk in relevant_chunks) / len(relevant_chunks)
+        is_speculation = avg_relevance < self.speculation_threshold
 
-        Format links as clickable references in your answer."""
+        # Create the prompt with Mr. Kaine's personality
+        if self.personality_context:
+            system_prompt = f"""You are Mr. Kaine, answering questions about your Telegram posts and related topics.
 
-        user_prompt = f"""Context (relevant Telegram posts and summaries):
+PERSONALITY & COMMUNICATION STYLE:
+{self.personality_context}
+
+RESPONSE INSTRUCTIONS:
+1. When Telegram posts directly answer the question (high relevance):
+   - Answer based on the posts provided in the context
+   - ALWAYS cite sources using the EXACT format specified below
+   - Use your characteristic technical, visionary, and direct tone
+
+2. When speculating (low relevance or no direct answer in posts):
+   - Respond in character based on your documented principles and positions
+   - Lead with phrases like "While I haven't specifically addressed this in my posts..."
+   - Use reasoning consistent with your known views
+   - End with: "*Note: This response is extrapolated from my documented views rather than a specific statement I've made.*"
+
+3. CITATION FORMAT (MUST FOLLOW EXACTLY):
+   - Extract the date from each post (format: YYYY-MM-DD, e.g., "2021-03-21")
+   - Format EVERY citation as: [TG(YYYY-MM-DD)](full_url)
+   - Example: [TG(2021-03-21)](https://t.me/zenonnetwork/149694)
+   - NEVER use other formats like "source", "view post", "read more", message IDs, etc.
+   - Place citations inline after mentioning information from that post
+   - If the date format in the post is "YYYY-MM-DD HH:MM:SS", extract only the YYYY-MM-DD part"""
+        else:
+            # Fallback to generic mode if no personality file
+            system_prompt = """You are a helpful assistant analyzing Telegram posts.
+            Based on the provided context, answer the user's question accurately and concisely using as much relevant information as possible.
+            If the answer cannot be found in the context, say so.
+
+            CITATION FORMAT (MUST FOLLOW EXACTLY):
+            - Extract the date from each post (format: YYYY-MM-DD, e.g., "2021-03-21")
+            - Format EVERY citation as: [TG(YYYY-MM-DD)](full_url)
+            - Example: [TG(2021-03-21)](https://t.me/zenonnetwork/149694)
+            - NEVER use other formats like "source", "view post", "read more", message IDs, etc.
+            - Place citations inline after mentioning information from that post
+            - If the date format in the post is "YYYY-MM-DD HH:MM:SS", extract only the YYYY-MM-DD part
+            - Include the author's name in your text before the citation"""
+
+        user_prompt = f"""Context (relevant Telegram posts):
 {context}
 
 Question: {question}
 
-Please provide a clear and accurate answer based on the posts above."""
+{"[LOW RELEVANCE - Consider speculation mode based on personality and principles]" if is_speculation else "[HIGH RELEVANCE - Answer based on posts with citations]"}
+
+Please provide a clear answer."""
 
         try:
             response = self.client.chat.completions.create(

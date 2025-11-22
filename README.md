@@ -85,10 +85,49 @@ Your JSON file should have this structure:
 4. **Context Retrieval**: Finds the 15 most relevant message chunks
 5. **Answer Generation**: GPT-4o generates an answer citing relevant messages
 
+## Mr. Kaine Personality Mode
+
+By default, Kaine AI responds as **Mr. Kaine** with a distinct personality:
+
+- **Technical & Analytical**: Focuses on system architecture and technical details
+- **Visionary & Philosophical**: Considers long-term implications and systemic change
+- **Direct & No-Nonsense**: Gets straight to the point, values clarity
+
+### How It Works
+
+**When posts contain the answer:**
+- Responds based on documented Telegram posts
+- Cites date, author, and Telegram URL
+- Uses Mr. Kaine's characteristic tone
+
+**When speculating (no direct answer in posts):**
+- Responds in character based on documented principles
+- Clearly marks responses as speculation
+- Example: "While I haven't specifically addressed this in my posts..."
+
+### Customization
+
+You can customize Mr. Kaine's personality by editing `data/kaine_personality.md`. This file contains:
+- Personality traits and communication style
+- Known positions on topics
+- Response guidelines and example patterns
+
+To disable personality mode, simply remove or rename the personality file.
+
 ## Advanced Configuration
 
 Edit `.env` to customize behavior:
+
+**Model Settings:**
 - `EMBEDDING_MODEL`: text-embedding-3-large (default) or text-embedding-3-small (cheaper)
 - `CHAT_MODEL`: gpt-4o (default) or gpt-4-turbo-preview
 - `DEFAULT_CONTEXT_POSTS`: 15 (default) - number of relevant chunks to use
+
+**Personality Settings:**
+- `KAINE_PERSONALITY_FILE`: data/kaine_personality.md (default) - path to personality file
+- `SPECULATION_THRESHOLD`: 0.5 (default) - relevance score below which system enters speculation mode
+
+**Other Settings:**
 - `ENABLE_COST_TRACKING`: false (default) - set to true to see API costs per query
+- `ENABLE_DIVERSITY`: true (default) - avoid too many chunks from same post
+- `ENABLE_COMPRESSION`: false (default) - expensive context compression

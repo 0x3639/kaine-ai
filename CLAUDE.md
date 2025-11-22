@@ -6,24 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Kaine AI is a Telegram Q&A analysis tool that uses OpenAI's embeddings and GPT-4o to perform semantic search over Telegram chat history. The tool implements hybrid search (semantic + keyword-based TF-IDF) with post chunking and optional context compression.
 
+**NEW: Mr. Kaine Personality Mode** - The system now includes a personality layer that allows Mr. Kaine to respond both to questions about his Telegram posts AND general questions in his characteristic technical, visionary, and direct tone. The system intelligently switches between factual responses (citing posts) and speculation mode (extrapolating from documented principles).
+
 ## Directory Structure
 
 ```
 mr-kaine-ai/
-├── data/                # Input JSON data files
-│   └── mrkainez_posts.json
-├── cache/               # Generated .pkl files (gitignored)
+├── data/                       # Input JSON data files
+│   ├── mrkainez_posts.json    # Telegram posts data
+│   └── kaine_personality.md   # Mr. Kaine's personality & knowledge base
+├── cache/                      # Generated .pkl files (gitignored)
 │   ├── .gitkeep
 │   ├── *_embeddings.pkl
 │   ├── *_chunks.pkl
 │   └── *_tfidf.pkl
-├── kaine_ai.py          # Main application
-├── requirements.txt     # Python dependencies
-├── README.md           # User documentation
-├── CLAUDE.md           # Developer documentation
-├── .env                # Local secrets (gitignored)
-├── .env.example        # Environment template
-└── .gitignore          # Git ignore rules
+├── kaine_ai.py                 # Main application
+├── requirements.txt            # Python dependencies
+├── README.md                   # User documentation
+├── CLAUDE.md                   # Developer documentation
+├── .env                        # Local secrets (gitignored)
+├── .env.example                # Environment template
+└── .gitignore                  # Git ignore rules
 ```
 
 ## Quick Commands
@@ -92,10 +95,14 @@ The main class handles the entire lifecycle from data loading to question answer
    - Compression threshold: 100,000 tokens (configurable)
    - Cost tracking available for monitoring API usage
 
-5. **Answer Generation** (lines 442-489)
+5. **Answer Generation with Personality** (lines 446-540)
    - Takes user question and finds relevant chunks
    - Builds context from top results
-   - Uses GPT-4o with system prompt specialized for Telegram post analysis
+   - Loads Mr. Kaine's personality context from `data/kaine_personality.md`
+   - Calculates average relevance score to determine speculation vs. factual mode
+   - Uses GPT-4o with personality-enhanced system prompt
+   - **High Relevance Mode**: Cites posts with dates, authors, and Telegram URLs
+   - **Speculation Mode**: Responds in character with clear disclaimer when relevance < threshold
    - Includes dates, authors, and Telegram URLs in responses
 
 ### File Naming Convention
@@ -128,6 +135,10 @@ All configurable parameters are in `.env`:
 - `COMPRESSION_THRESHOLD` - Default: 100000 tokens
 - `ENABLE_DIVERSITY` - Default: true
 - `ENABLE_COST_TRACKING` - Default: false
+
+**Personality Settings:**
+- `KAINE_PERSONALITY_FILE` - Default: `data/kaine_personality.md` - Path to personality context file
+- `SPECULATION_THRESHOLD` - Default: 0.5 - Relevance score threshold for speculation mode (0.0-1.0)
 
 ### Data Format
 
@@ -164,13 +175,41 @@ Pricing reference (as of code):
 
 ## Development Notes
 
+### Personality System Architecture
+
+The personality system works by:
+
+1. **Loading Personality Context** (`_load_personality()`, line 101)
+   - Reads `data/kaine_personality.md` on initialization
+   - Contains personality traits, communication style, known positions, and response guidelines
+   - Gracefully falls back to generic mode if file not found
+
+2. **Relevance-Based Mode Switching** (`answer_question()`, line 494-496)
+   - Calculates average relevance score from retrieved chunks
+   - Compares against `SPECULATION_THRESHOLD` (default: 0.5)
+   - Low relevance → speculation mode; High relevance → factual mode
+
+3. **Dynamic System Prompt** (lines 499-528)
+   - Injects personality context into system prompt
+   - Provides different instructions for factual vs. speculation responses
+   - Maintains citation requirements for post-based answers
+
+4. **Customizing Mr. Kaine's Personality**
+   - Edit `data/kaine_personality.md` to change:
+     - Personality traits (technical, visionary, direct, etc.)
+     - Known positions on topics
+     - Communication style and tone
+     - Response patterns and example phrases
+   - Changes take effect on next run (no re-embedding needed)
+
 ### Adding Features
 
 When modifying the search algorithm:
-- Semantic search logic: `find_relevant_chunks()` (line 300)
-- TF-IDF implementation: `create_tfidf()` (line 253)
-- Score fusion: Line 332-335
-- Diversity re-ranking: `_diversity_rerank()` (line 353)
+- Semantic search logic: `find_relevant_chunks()` (line 304)
+- TF-IDF implementation: `create_tfidf()` (line 257)
+- Score fusion: Line 336-339
+- Diversity re-ranking: `_diversity_rerank()` (line 357)
+- Personality system: `_load_personality()` (line 101), system prompt (line 499-528)
 
 ### Testing Changes
 
